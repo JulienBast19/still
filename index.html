@@ -372,8 +372,10 @@
   let intervalId = null;
   let isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-  // ── Audio context (must be created/resumed on user gesture for iOS) ──
+  // ── Audio (iOS-safe: pre-render bell to WAV blob on first tap) ──
+  let bellAudioUrl = null;
   let audioCtx = null;
+
   function ensureAudioCtx() {
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -381,15 +383,128 @@
     if (audioCtx.state === 'suspended') {
       audioCtx.resume();
     }
-    // Play a silent buffer to fully unlock on iOS
-    try {
-      var buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
-      var src = audioCtx.createBufferSource();
-      src.buffer = buf;
-      src.connect(audioCtx.destination);
-      src.start(0);
-    } catch(e) {}
     return audioCtx;
+  }
+
+  // Pre-render the singing bowl to an audio blob so we can play it
+  // with a simple <audio> element — guaranteed to work on iOS
+  function prerenderBell() {
+    if (bellAudioUrl) return; // already done
+    try {
+      var sampleRate = 44100;
+      var duration = 16;
+      var length = sampleRate * duration;
+      var offline = new OfflineAudioContext(2, length, sampleRate);
+      var t = 0;
+
+      // Compressor
+      var comp = offline.createDynamicsCompressor();
+      comp.threshold.setValueAtTime(-12, t);
+      comp.ratio.setValueAtTime(4, t);
+      comp.connect(offline.destination);
+
+      // Reverb
+      var convolver = offline.createConvolver();
+      var reverbLen = 2 * sampleRate;
+      var reverbBuf = offline.createBuffer(2, reverbLen, sampleRate);
+      for (var ch = 0; ch < 2; ch++) {
+        var rd = reverbBuf.getChannelData(ch);
+        for (var i = 0; i < reverbLen; i++) {
+          rd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / reverbLen, 2.5);
+        }
+      }
+      convolver.buffer = reverbBuf;
+      convolver.connect(comp);
+
+      var dryGain = offline.createGain();
+      dryGain.gain.setValueAtTime(0.7, t);
+      dryGain.connect(comp);
+      var wetGain = offline.createGain();
+      wetGain.gain.setValueAtTime(0.3, t);
+      wetGain.connect(convolver);
+
+      var partials = [
+        [264, 0.12, 14], [528, 0.30, 15], [531, 0.08, 14],
+        [1056, 0.10, 12], [1060, 0.04, 11], [1584, 0.06, 10],
+        [2112, 0.03, 8], [2640, 0.015, 7], [3168, 0.008, 6]
+      ];
+
+      partials.forEach(function(p) {
+        var freq = p[0], vol = p[1], decay = p[2];
+        var osc = offline.createOscillator();
+        var gain = offline.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(vol, t + 0.008);
+        gain.gain.setValueAtTime(vol * 0.85, t + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+        osc.connect(gain);
+        gain.connect(dryGain);
+        gain.connect(wetGain);
+        osc.start(t);
+        osc.stop(t + decay + 0.1);
+      });
+
+      // Strike noise
+      var noiseDur = 0.06;
+      var noiseLen = Math.ceil(sampleRate * noiseDur);
+      var noiseBuf = offline.createBuffer(1, noiseLen, sampleRate);
+      var nd = noiseBuf.getChannelData(0);
+      for (var j = 0; j < noiseLen; j++) {
+        nd[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / noiseLen, 8);
+      }
+      var noiseSource = offline.createBufferSource();
+      noiseSource.buffer = noiseBuf;
+      var noiseGain = offline.createGain();
+      noiseGain.gain.setValueAtTime(0.15, t);
+      var noiseFilter = offline.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(800, t);
+      noiseFilter.Q.setValueAtTime(1.5, t);
+      noiseSource.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(dryGain);
+      noiseSource.start(t);
+      noiseSource.stop(t + noiseDur);
+
+      offline.startRendering().then(function(rendered) {
+        // Encode as WAV blob
+        var numCh = rendered.numberOfChannels;
+        var len = rendered.length;
+        var bufferSize = 44 + len * numCh * 2;
+        var buffer = new ArrayBuffer(bufferSize);
+        var view = new DataView(buffer);
+        function writeStr(offset, str) {
+          for (var i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+        }
+        writeStr(0, 'RIFF');
+        view.setUint32(4, bufferSize - 8, true);
+        writeStr(8, 'WAVE');
+        writeStr(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numCh, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numCh * 2, true);
+        view.setUint16(32, numCh * 2, true);
+        view.setUint16(34, 16, true);
+        writeStr(36, 'data');
+        view.setUint32(40, len * numCh * 2, true);
+        var offset = 44;
+        var channels = [];
+        for (var c = 0; c < numCh; c++) channels.push(rendered.getChannelData(c));
+        for (var i = 0; i < len; i++) {
+          for (var c = 0; c < numCh; c++) {
+            var s = Math.max(-1, Math.min(1, channels[c][i]));
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            offset += 2;
+          }
+        }
+        var blob = new Blob([buffer], { type: 'audio/wav' });
+        bellAudioUrl = URL.createObjectURL(blob);
+      }).catch(function() {});
+    } catch(e) {}
   }
 
   // ── Streak persistence (in-memory; persisted when installed as standalone PWA via external script) ──
@@ -547,8 +662,21 @@
     renderProgress();
   }
 
+  // Hidden audio element for iOS unlock
+  var silentAudio = null;
+  function unlockAudio() {
+    ensureAudioCtx();
+    prerenderBell();
+    // Also unlock HTML5 Audio by playing silence
+    if (!silentAudio) {
+      silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=');
+      silentAudio.volume = 0.01;
+      silentAudio.play().then(function() { silentAudio.pause(); }).catch(function() {});
+    }
+  }
+
   function startTimer() {
-    ensureAudioCtx(); // Unlock audio on user tap (required for iOS)
+    unlockAudio(); // Unlock audio + pre-render bell on user tap
     timerState = 'running';
     intervalId = setInterval(tick, 1000);
     renderControls();
@@ -562,7 +690,7 @@
   }
 
   function resumeTimer() {
-    ensureAudioCtx(); // Keep audio unlocked
+    unlockAudio(); // Keep audio unlocked
     timerState = 'running';
     intervalId = setInterval(tick, 1000);
     renderControls();
@@ -585,101 +713,41 @@
     logSession();
   }
 
-  // ── Tibetan Singing Bowl sound (Web Audio API) ──
-  // 528 Hz Mani bowl — rich harmonics, ~15 second sustain
+  // ── Play bell sound using pre-rendered audio ──
   function playBellSound() {
     try {
-      const ctx = ensureAudioCtx();
-      const t = ctx.currentTime;
-      const dur = 16; // total duration in seconds
-
-      // Master compressor for smooth output
-      const comp = ctx.createDynamicsCompressor();
-      comp.threshold.setValueAtTime(-12, t);
-      comp.ratio.setValueAtTime(4, t);
-      comp.connect(ctx.destination);
-
-      // Convolver for subtle reverb (simulate room resonance)
-      const convolver = ctx.createConvolver();
-      const reverbLen = 2 * ctx.sampleRate;
-      const reverbBuf = ctx.createBuffer(2, reverbLen, ctx.sampleRate);
-      for (var ch = 0; ch < 2; ch++) {
-        var rd = reverbBuf.getChannelData(ch);
-        for (var i = 0; i < reverbLen; i++) {
-          rd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / reverbLen, 2.5);
-        }
+      if (bellAudioUrl) {
+        var audio = new Audio(bellAudioUrl);
+        audio.play().catch(function() {});
+      } else {
+        // Fallback: try real-time synthesis
+        var ctx = ensureAudioCtx();
+        if (ctx.state === 'suspended') ctx.resume();
+        var t = ctx.currentTime;
+        var comp = ctx.createDynamicsCompressor();
+        comp.threshold.setValueAtTime(-12, t);
+        comp.ratio.setValueAtTime(4, t);
+        comp.connect(ctx.destination);
+        var partials = [
+          [264,0.12,14],[528,0.30,15],[531,0.08,14],
+          [1056,0.10,12],[1060,0.04,11],[1584,0.06,10],
+          [2112,0.03,8],[2640,0.015,7],[3168,0.008,6]
+        ];
+        partials.forEach(function(p) {
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(p[0], t);
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(p[1], t + 0.008);
+          gain.gain.setValueAtTime(p[1] * 0.85, t + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + p[2]);
+          osc.connect(gain);
+          gain.connect(comp);
+          osc.start(t);
+          osc.stop(t + p[2] + 0.1);
+        });
       }
-      convolver.buffer = reverbBuf;
-      convolver.connect(comp);
-
-      // Dry/wet mix
-      var dryGain = ctx.createGain();
-      dryGain.gain.setValueAtTime(0.7, t);
-      dryGain.connect(comp);
-      var wetGain = ctx.createGain();
-      wetGain.gain.setValueAtTime(0.3, t);
-      wetGain.connect(convolver);
-
-      // Singing bowl partials — fundamental + harmonics
-      // Real Mani bowls have non-integer harmonics creating subtle beating
-      var partials = [
-        // freq,       gain,  decay(s), detune(cents)
-        [  264,        0.12,  14,    0   ],  // sub-octave
-        [  528,        0.30,  15,    0   ],  // fundamental (528 Hz)
-        [  531,        0.08,  14,    0   ],  // slight detuned copy for beating
-        [ 1056,        0.10,  12,    0   ],  // 2nd harmonic
-        [ 1060,        0.04,  11,    0   ],  // beating pair
-        [ 1584,        0.06,  10,    0   ],  // 3rd harmonic
-        [ 2112,        0.03,   8,    0   ],  // 4th harmonic
-        [ 2640,        0.015,  7,    0   ],  // 5th harmonic
-        [ 3168,        0.008,  6,    0   ],  // 6th harmonic
-      ];
-
-      partials.forEach(function(p) {
-        var freq = p[0], vol = p[1], decay = p[2];
-        var osc = ctx.createOscillator();
-        var gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, t);
-
-        // Attack: quick strike transient (bowl being struck)
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(vol, t + 0.008); // 8ms attack
-        // Slight initial drop (impact energy dissipates)
-        gain.gain.setValueAtTime(vol * 0.85, t + 0.05);
-        // Long exponential decay
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-
-        osc.connect(gain);
-        gain.connect(dryGain);
-        gain.connect(wetGain);
-        osc.start(t);
-        osc.stop(t + decay + 0.1);
-      });
-
-      // Strike transient — short noise burst (the "hit" of the mallet)
-      var noiseDur = 0.06;
-      var noiseLen = Math.ceil(ctx.sampleRate * noiseDur);
-      var noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
-      var nd = noiseBuf.getChannelData(0);
-      for (var j = 0; j < noiseLen; j++) {
-        nd[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / noiseLen, 8);
-      }
-      var noiseSource = ctx.createBufferSource();
-      noiseSource.buffer = noiseBuf;
-      var noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.15, t);
-      var noiseFilter = ctx.createBiquadFilter();
-      noiseFilter.type = 'bandpass';
-      noiseFilter.frequency.setValueAtTime(800, t);
-      noiseFilter.Q.setValueAtTime(1.5, t);
-      noiseSource.connect(noiseFilter);
-      noiseFilter.connect(noiseGain);
-      noiseGain.connect(dryGain);
-      noiseSource.start(t);
-      noiseSource.stop(t + noiseDur);
-
-      // Don't close the context — reuse it
     } catch(e) {}
   }
 
