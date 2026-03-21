@@ -372,6 +372,26 @@
   let intervalId = null;
   let isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
+  // ── Audio context (must be created/resumed on user gesture for iOS) ──
+  let audioCtx = null;
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    // Play a silent buffer to fully unlock on iOS
+    try {
+      var buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+      var src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioCtx.destination);
+      src.start(0);
+    } catch(e) {}
+    return audioCtx;
+  }
+
   // ── Streak persistence (in-memory; persisted when installed as standalone PWA via external script) ──
   var _streakData = { dates: [], totalSessions: 0 };
 
@@ -528,6 +548,7 @@
   }
 
   function startTimer() {
+    ensureAudioCtx(); // Unlock audio on user tap (required for iOS)
     timerState = 'running';
     intervalId = setInterval(tick, 1000);
     renderControls();
@@ -541,6 +562,7 @@
   }
 
   function resumeTimer() {
+    ensureAudioCtx(); // Keep audio unlocked
     timerState = 'running';
     intervalId = setInterval(tick, 1000);
     renderControls();
@@ -567,7 +589,7 @@
   // 528 Hz Mani bowl — rich harmonics, ~15 second sustain
   function playBellSound() {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = ensureAudioCtx();
       const t = ctx.currentTime;
       const dur = 16; // total duration in seconds
 
@@ -657,7 +679,7 @@
       noiseSource.start(t);
       noiseSource.stop(t + noiseDur);
 
-      setTimeout(function() { ctx.close(); }, (dur + 1) * 1000);
+      // Don't close the context — reuse it
     } catch(e) {}
   }
 
