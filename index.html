@@ -336,6 +336,7 @@
 
     <!-- Duration presets -->
     <div class="presets" id="presets">
+      <button class="preset-btn" data-seconds="5" style="font-size:0.65rem;color:var(--primary)">5s</button>
       <button class="preset-btn" data-seconds="300">5</button>
       <button class="preset-btn active" data-seconds="600">10</button>
       <button class="preset-btn" data-seconds="900">15</button>
@@ -354,6 +355,9 @@
     </div>
 
   </div>
+
+  <!-- Debug (remove after testing) -->
+  <div id="debugLog" style="font-size:0.65rem;color:var(--fg-muted);text-align:center;max-width:28rem;opacity:0.6;line-height:1.4"></div>
 
   <!-- Footer -->
   <footer>
@@ -665,13 +669,17 @@
   // Hidden audio element for iOS unlock
   var silentAudio = null;
   function unlockAudio() {
-    ensureAudioCtx();
+    var ctx = ensureAudioCtx();
+    dbg('unlock: ctx.state=' + ctx.state);
     prerenderBell();
     // Also unlock HTML5 Audio by playing silence
     if (!silentAudio) {
       silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=');
       silentAudio.volume = 0.01;
-      silentAudio.play().then(function() { silentAudio.pause(); }).catch(function() {});
+      silentAudio.play().then(function() {
+        silentAudio.pause();
+        dbg('silent audio unlocked');
+      }).catch(function(e) { dbg('silent unlock failed: ' + e.message); });
     }
   }
 
@@ -713,42 +721,64 @@
     logSession();
   }
 
+  // ── Debug logger (remove after testing) ──
+  function dbg(msg) {
+    var el = document.getElementById('debugLog');
+    if (el) el.textContent += msg + ' \n';
+  }
+
   // ── Play bell sound using pre-rendered audio ──
   function playBellSound() {
+    dbg('playBell called. bellUrl=' + (bellAudioUrl ? 'yes' : 'no'));
     try {
       if (bellAudioUrl) {
         var audio = new Audio(bellAudioUrl);
-        audio.play().catch(function() {});
-      } else {
-        // Fallback: try real-time synthesis
-        var ctx = ensureAudioCtx();
-        if (ctx.state === 'suspended') ctx.resume();
-        var t = ctx.currentTime;
-        var comp = ctx.createDynamicsCompressor();
-        comp.threshold.setValueAtTime(-12, t);
-        comp.ratio.setValueAtTime(4, t);
-        comp.connect(ctx.destination);
-        var partials = [
-          [264,0.12,14],[528,0.30,15],[531,0.08,14],
-          [1056,0.10,12],[1060,0.04,11],[1584,0.06,10],
-          [2112,0.03,8],[2640,0.015,7],[3168,0.008,6]
-        ];
-        partials.forEach(function(p) {
-          var osc = ctx.createOscillator();
-          var gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(p[0], t);
-          gain.gain.setValueAtTime(0, t);
-          gain.gain.linearRampToValueAtTime(p[1], t + 0.008);
-          gain.gain.setValueAtTime(p[1] * 0.85, t + 0.05);
-          gain.gain.exponentialRampToValueAtTime(0.0001, t + p[2]);
-          osc.connect(gain);
-          gain.connect(comp);
-          osc.start(t);
-          osc.stop(t + p[2] + 0.1);
+        dbg('Audio created, calling play...');
+        audio.play().then(function() {
+          dbg('Audio playing OK');
+        }).catch(function(err) {
+          dbg('Audio play FAILED: ' + err.message);
+          // Fallback to real-time
+          playBellRealtime();
         });
+      } else {
+        dbg('No prerendered bell, using realtime');
+        playBellRealtime();
       }
-    } catch(e) {}
+    } catch(e) { dbg('playBell error: ' + e.message); }
+  }
+
+  function playBellRealtime() {
+    try {
+      var ctx = ensureAudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+      dbg('Realtime: ctx.state=' + ctx.state);
+      var t = ctx.currentTime;
+      var comp = ctx.createDynamicsCompressor();
+      comp.threshold.setValueAtTime(-12, t);
+      comp.ratio.setValueAtTime(4, t);
+      comp.connect(ctx.destination);
+      var partials = [
+        [264,0.12,14],[528,0.30,15],[531,0.08,14],
+        [1056,0.10,12],[1060,0.04,11],[1584,0.06,10],
+        [2112,0.03,8],[2640,0.015,7],[3168,0.008,6]
+      ];
+      partials.forEach(function(p) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(p[0], t);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(p[1], t + 0.008);
+        gain.gain.setValueAtTime(p[1] * 0.85, t + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + p[2]);
+        osc.connect(gain);
+        gain.connect(comp);
+        osc.start(t);
+        osc.stop(t + p[2] + 0.1);
+      });
+      dbg('Realtime oscillators started');
+    } catch(e) { dbg('Realtime error: ' + e.message); }
   }
 
   // ── Theme ──
