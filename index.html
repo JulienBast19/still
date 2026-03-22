@@ -1,24 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!--
-   ______                            __
-  / ____/___  ____ ___  ____  __  __/ /____  _____
- / /   / __ \/ __ `__ \/ __ \/ / / / __/ _ \/ ___/
-/ /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
-\____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
-                    /_/
-        Created with Perplexity Computer
-        https://www.perplexity.ai/computer
--->
-<meta name="generator" content="Perplexity Computer">
-<meta name="author" content="Perplexity Computer">
-<meta property="og:see_also" content="https://www.perplexity.ai/computer">
-<link rel="author" href="https://www.perplexity.ai/computer">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>Still — Meditation Timer</title>
-<meta name="description" content="A minimal meditation timer with singing bowl bell and daily streak tracking.">
+<meta name="description" content="A minimal meditation timer with a Tibetan bowl chime and daily streak tracking.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Still">
@@ -261,21 +247,6 @@
   }
   .btn-text:hover { color: var(--fg); }
 
-  /* Footer */
-  footer {
-    width: 100%;
-    max-width: 28rem;
-    padding-top: 2rem;
-    text-align: center;
-  }
-  footer a {
-    font-size: 0.75rem;
-    color: var(--fg-faint);
-    text-decoration: none;
-    transition: color 0.2s;
-  }
-  footer a:hover { color: var(--fg-muted); }
-
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
@@ -355,17 +326,6 @@
     </div>
 
   </div>
-
-  <!-- Debug (remove after testing) -->
-  <div id="debugLog" style="font-size:0.65rem;color:var(--fg-muted);text-align:center;max-width:28rem;opacity:0.6;line-height:1.4"></div>
-
-  <!-- Footer -->
-  <footer>
-    <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">
-      Created with Perplexity Computer
-    </a>
-  </footer>
-
 <script>
 (function() {
   // ── State ──
@@ -376,8 +336,8 @@
   let intervalId = null;
   let isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-  // ── Audio (iOS-safe: pre-render bell to WAV blob on first tap) ──
-  let bellAudioUrl = '1110.mp3';
+  // ── Audio (iOS-safe: pre-render Tibetan bowl chime on first tap) ──
+  let bellAudioUrl = null;
   let audioCtx = null;
 
   function ensureAudioCtx() {
@@ -390,7 +350,7 @@
     return audioCtx;
   }
 
-  // Pre-render the singing bowl to an audio blob so we can play it
+  // Pre-render a Tibetan bowl chime to an audio blob so we can play it
   // with a simple <audio> element — guaranteed to work on iOS
   function prerenderBell() {
     if (bellAudioUrl) return; // already done
@@ -428,9 +388,13 @@
       wetGain.connect(convolver);
 
       var partials = [
-        [264, 0.12, 14], [528, 0.30, 15], [531, 0.08, 14],
-        [1056, 0.10, 12], [1060, 0.04, 11], [1584, 0.06, 10],
-        [2112, 0.03, 8], [2640, 0.015, 7], [3168, 0.008, 6]
+        [196.0, 0.16, 15],
+        [293.66, 0.22, 16],
+        [440.0, 0.14, 14],
+        [587.33, 0.08, 12],
+        [659.25, 0.06, 11],
+        [880.0, 0.035, 9],
+        [1174.66, 0.02, 8]
       ];
 
       partials.forEach(function(p) {
@@ -440,8 +404,8 @@
         osc.type = 'sine';
         osc.frequency.setValueAtTime(freq, t);
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(vol, t + 0.008);
-        gain.gain.setValueAtTime(vol * 0.85, t + 0.05);
+        gain.gain.linearRampToValueAtTime(vol, t + 0.012);
+        gain.gain.setValueAtTime(vol * 0.9, t + 0.08);
         gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
         osc.connect(gain);
         gain.connect(dryGain);
@@ -451,7 +415,7 @@
       });
 
       // Strike noise
-      var noiseDur = 0.06;
+      var noiseDur = 0.09;
       var noiseLen = Math.ceil(sampleRate * noiseDur);
       var noiseBuf = offline.createBuffer(1, noiseLen, sampleRate);
       var nd = noiseBuf.getChannelData(0);
@@ -461,11 +425,11 @@
       var noiseSource = offline.createBufferSource();
       noiseSource.buffer = noiseBuf;
       var noiseGain = offline.createGain();
-      noiseGain.gain.setValueAtTime(0.15, t);
+      noiseGain.gain.setValueAtTime(0.09, t);
       var noiseFilter = offline.createBiquadFilter();
       noiseFilter.type = 'bandpass';
-      noiseFilter.frequency.setValueAtTime(800, t);
-      noiseFilter.Q.setValueAtTime(1.5, t);
+      noiseFilter.frequency.setValueAtTime(540, t);
+      noiseFilter.Q.setValueAtTime(1.1, t);
       noiseSource.connect(noiseFilter);
       noiseFilter.connect(noiseGain);
       noiseGain.connect(dryGain);
@@ -670,7 +634,6 @@
   var silentAudio = null;
   function unlockAudio() {
     var ctx = ensureAudioCtx();
-    dbg('unlock: ctx.state=' + ctx.state);
     prerenderBell();
     // Also unlock HTML5 Audio by playing silence
     if (!silentAudio) {
@@ -678,8 +641,7 @@
       silentAudio.volume = 0.01;
       silentAudio.play().then(function() {
         silentAudio.pause();
-        dbg('silent audio unlocked');
-      }).catch(function(e) { dbg('silent unlock failed: ' + e.message); });
+      }).catch(function() {});
     }
   }
 
@@ -721,47 +683,40 @@
     logSession();
   }
 
-  // ── Debug logger (remove after testing) ──
-  function dbg(msg) {
-    var el = document.getElementById('debugLog');
-    if (el) el.textContent += msg + ' \n';
-  }
-
-  // ── Play bell sound using pre-rendered audio ──
+  // ── Play Tibetan bowl chime using pre-rendered audio ──
   function playBellSound() {
-    dbg('playBell called. bellUrl=' + (bellAudioUrl ? 'yes' : 'no'));
     try {
       if (bellAudioUrl) {
         var audio = new Audio(bellAudioUrl);
-        dbg('Audio created, calling play...');
-        audio.play().then(function() {
-          dbg('Audio playing OK');
-        }).catch(function(err) {
-          dbg('Audio play FAILED: ' + err.message);
+        audio.play().catch(function() {
           // Fallback to real-time
           playBellRealtime();
         });
       } else {
-        dbg('No prerendered bell, using realtime');
         playBellRealtime();
       }
-    } catch(e) { dbg('playBell error: ' + e.message); }
+    } catch(e) {
+      playBellRealtime();
+    }
   }
 
   function playBellRealtime() {
     try {
       var ctx = ensureAudioCtx();
       if (ctx.state === 'suspended') ctx.resume();
-      dbg('Realtime: ctx.state=' + ctx.state);
       var t = ctx.currentTime;
       var comp = ctx.createDynamicsCompressor();
       comp.threshold.setValueAtTime(-12, t);
       comp.ratio.setValueAtTime(4, t);
       comp.connect(ctx.destination);
       var partials = [
-        [264,0.12,14],[528,0.30,15],[531,0.08,14],
-        [1056,0.10,12],[1060,0.04,11],[1584,0.06,10],
-        [2112,0.03,8],[2640,0.015,7],[3168,0.008,6]
+        [196.0,0.16,15],
+        [293.66,0.22,16],
+        [440.0,0.14,14],
+        [587.33,0.08,12],
+        [659.25,0.06,11],
+        [880.0,0.035,9],
+        [1174.66,0.02,8]
       ];
       partials.forEach(function(p) {
         var osc = ctx.createOscillator();
@@ -769,16 +724,15 @@
         osc.type = 'sine';
         osc.frequency.setValueAtTime(p[0], t);
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(p[1], t + 0.008);
-        gain.gain.setValueAtTime(p[1] * 0.85, t + 0.05);
+        gain.gain.linearRampToValueAtTime(p[1], t + 0.012);
+        gain.gain.setValueAtTime(p[1] * 0.9, t + 0.08);
         gain.gain.exponentialRampToValueAtTime(0.0001, t + p[2]);
         osc.connect(gain);
         gain.connect(comp);
         osc.start(t);
         osc.stop(t + p[2] + 0.1);
       });
-      dbg('Realtime oscillators started');
-    } catch(e) { dbg('Realtime error: ' + e.message); }
+    } catch(e) {}
   }
 
   // ── Theme ──
