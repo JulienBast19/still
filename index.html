@@ -642,7 +642,28 @@
       silentAudio.play().then(function() {
         silentAudio.pause();
       }).catch(function() {});
+  
     }
+  // Screen Wake Lock to prevent device from sleeping during timer
+  let wakeLock = null;
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => {
+          console.log('Wake Lock released');
+        });
+      }
+    } catch (err) {
+      console.error('Wake Lock error:', err);
+    }
+  }
+  function releaseWakeLock() {
+    if (wakeLock) {
+      wakeLock.release();
+      wakeLock = null;
+    }
+  }
   }
 
   function startTimer() {
@@ -650,11 +671,13 @@
     timerState = 'running';
     intervalId = setInterval(tick, 1000);
     renderControls();
+     requestWakeLock();
     renderProgress();
   }
 
   function pauseTimer() {
     stopInterval();
+     releaseWakeLock();
     timerState = 'paused';
     renderControls();
   }
@@ -663,11 +686,13 @@
     unlockAudio(); // Keep audio unlocked
     timerState = 'running';
     intervalId = setInterval(tick, 1000);
+     requestWakeLock();
     renderControls();
   }
 
   function resetTimer() {
     stopInterval();
+     releaseWakeLock();
     timeLeft = selectedDuration;
     timerState = 'idle';
     renderTime();
@@ -677,6 +702,7 @@
 
   function finishSession() {
     stopInterval();
+     releaseWakeLock();
     timerState = 'finished';
     renderControls();
     playBellSound();
