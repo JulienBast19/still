@@ -653,15 +653,33 @@
           console.log('Wake Lock released');
         });
       }
-    } catch (err) {
+    } 
+    c atch (err) {
       console.error('Wake Lock error:', err);
+     
     }
   }
   function releaseWakeLock() {
     if (wakeLock) {
       wakeLock.release();
       wakeLock = null;
+  
+function enableNoSleepAudio() {
+    // Fallback for devices without wake lock; loop silent audio to keep device awake
+    if (silentAudio) {
+        silentAudio.loop = true;
+        silentAudio.play().catch(function() {});
     }
+}
+
+function disableNoSleepAudio() {
+    if (silentAudio) {
+        silentAudio.pause();
+        silentAudio.loop = false;
+        silentAudio.currentTime = 0;
+    }
+}
+  }
   }
   }
 
@@ -671,14 +689,17 @@
     intervalId = setInterval(tick, 1000);
     renderControls();
      requestWakeLock();
+       enableNoSleepAudio();
     renderProgress();
   }
 
   function pauseTimer() {
     stopInterval();
      releaseWakeLock();
+       disableNoSleepAudio();
     timerState = 'paused';
-    renderControls();
+       renderControls();
+       
   }
 
   function resumeTimer() {
@@ -686,15 +707,18 @@
     timerState = 'running';
     intervalId = setInterval(tick, 1000);
      requestWakeLock();
+       enableNoSleepAudio();
     renderControls();
   }
 
   function resetTimer() {
     stopInterval();
      releaseWakeLock();
+       disableNoSleepAudio();
     timeLeft = selectedDuration;
     timerState = 'idle';
     renderTime();
+   
     renderProgress();
     renderControls();
   }
@@ -702,8 +726,10 @@
   function finishSession() {
     stopInterval();
      releaseWakeLock();
+       disableNoSleepAudio();
     timerState = 'finished';
     renderControls();
+      d
     playBellSound();
     logSession();
   }
