@@ -333,6 +333,7 @@
   let timeLeft = 600;
   let timerState = 'idle'; // idle | running | paused | finished
   let intervalId = null;
+  let timerEndAt = null;
   let isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
   // ── Audio (iOS-safe: pre-render Tibetan bowl chime on first tap) ──
@@ -616,120 +617,119 @@
     if (intervalId) { clearInterval(intervalId); intervalId = null; }
   }
 
-  function tick() {
-    if (timeLeft <= 1) {
-      timeLeft = 0;
-      renderTime();
-      renderProgress();
-      finishSession();
-      return;
-    }
-    timeLeft--;
+  function syncTimer() {
+    if (timerState !== 'running' || !timerEndAt) return;
+    const remaining = Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000));
+    if (remaining === timeLeft) return;
+    timeLeft = remaining;
     renderTime();
     renderProgress();
+    if (timeLeft === 0) {
+      finishSession();
+    }
   }
 
   // Hidden audio element for iOS unlock
   var silentAudio = null;
+  let wakeLock = null;
+
   function unlockAudio() {
-    var ctx = ensureAudioCtx();
+    ensureAudioCtx();
     prerenderBell();
-    // Also unlock HTML5 Audio by playing silence
     if (!silentAudio) {
       silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=');
       silentAudio.volume = 0.01;
       silentAudio.play().then(function() {
         silentAudio.pause();
       }).catch(function() {});
-  
     }
-  // Screen Wake Lock to prevent device from sleeping during timer
-  let wakeLock = null;
+  }
+
   async function requestWakeLock() {
     try {
-      if ('wakeLock' in navigator) {
+      if ('wakeLock' in navigator && !wakeLock) {
         wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', () => {
-          console.log('Wake Lock released');
+        wakeLock.addEventListener('release', function() {
+          wakeLock = null;
         });
       }
-    } 
-    c atch (err) {
-      console.error('Wake Lock error:', err);
-     
-    }
+    } catch (e) {}
   }
+
   function releaseWakeLock() {
     if (wakeLock) {
-      wakeLock.release();
+      wakeLock.release().catch(function() {});
       wakeLock = null;
-  
-function enableNoSleepAudio() {
-    // Fallback for devices without wake lock; loop silent audio to keep device awake
-    if (silentAudio) {
-        silentAudio.loop = true;
-        silentAudio.play().catch(function() {});
     }
-}
+  }
 
-function disableNoSleepAudio() {
+  function enableNoSleepAudio() {
     if (silentAudio) {
-        silentAudio.pause();
-        silentAudio.loop = false;
-        silentAudio.currentTime = 0;
+      silentAudio.loop = true;
+      silentAudio.play().catch(function() {});
     }
-}
   }
-  }
+
+  function disableNoSleepAudio() {
+    if (silentAudio) {
+      silentAudio.pause();
+      silentAudio.loop = false;
+      silentAudio.currentTime = 0;
+    }
   }
 
   function startTimer() {
     unlockAudio(); // Unlock audio + pre-render bell on user tap
+    stopInterval();
     timerState = 'running';
-    intervalId = setInterval(tick, 1000);
+    timerEndAt = Date.now() + timeLeft * 1000;
+    intervalId = setInterval(syncTimer, 250);
+    requestWakeLock();
+    enableNoSleepAudio();
     renderControls();
-     requestWakeLock();
-       enableNoSleepAudio();
     renderProgress();
   }
 
   function pauseTimer() {
+    syncTimer();
     stopInterval();
-     releaseWakeLock();
-       disableNoSleepAudio();
+    timerEndAt = null;
+    releaseWakeLock();
+    disableNoSleepAudio();
     timerState = 'paused';
-       renderControls();
-       
+    renderControls();
   }
 
   function resumeTimer() {
     unlockAudio(); // Keep audio unlocked
+    stopInterval();
     timerState = 'running';
-    intervalId = setInterval(tick, 1000);
-     requestWakeLock();
-       enableNoSleepAudio();
+    timerEndAt = Date.now() + timeLeft * 1000;
+    intervalId = setInterval(syncTimer, 250);
+    requestWakeLock();
+    enableNoSleepAudio();
     renderControls();
   }
 
   function resetTimer() {
     stopInterval();
-     releaseWakeLock();
-       disableNoSleepAudio();
+    timerEndAt = null;
+    releaseWakeLock();
+    disableNoSleepAudio();
     timeLeft = selectedDuration;
     timerState = 'idle';
     renderTime();
-   
     renderProgress();
     renderControls();
   }
 
   function finishSession() {
     stopInterval();
-     releaseWakeLock();
-       disableNoSleepAudio();
+    timerEndAt = null;
+    releaseWakeLock();
+    disableNoSleepAudio();
     timerState = 'finished';
     renderControls();
-      d
     playBellSound();
     logSession();
   }
@@ -802,6 +802,7 @@ function disableNoSleepAudio() {
   btnResume.addEventListener('click', resumeTimer);
   btnReset.addEventListener('click', resetTimer);
   btnNewSession.addEventListener('click', resetTimer);
+  document.addEventListener('visibilitychange', syncTimer);
 
   presets.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-seconds]');
