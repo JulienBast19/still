@@ -635,15 +635,34 @@
   // Hidden audio element for iOS unlock
   var silentAudio = null;
   let wakeLock = null;
+  let audioUnlocked = false;
+
+  function isStandaloneIOS() {
+    const ua = navigator.userAgent || '';
+    const isiOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return isiOS && (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
+  }
 
   function unlockAudio() {
-    ensureAudioCtx();
+    var ctx = ensureAudioCtx();
     prerenderBell();
+    try {
+      var unlockGain = ctx.createGain();
+      unlockGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      unlockGain.connect(ctx.destination);
+      var unlockOsc = ctx.createOscillator();
+      unlockOsc.frequency.setValueAtTime(440, ctx.currentTime);
+      unlockOsc.connect(unlockGain);
+      unlockOsc.start(ctx.currentTime);
+      unlockOsc.stop(ctx.currentTime + 0.02);
+      audioUnlocked = true;
+    } catch (e) {}
     if (!silentAudio) {
       silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=');
       silentAudio.volume = 0.01;
       silentAudio.play().then(function() {
         silentAudio.pause();
+        audioUnlocked = true;
       }).catch(function() {});
     }
   }
@@ -739,6 +758,10 @@
 
   // ── Play Tibetan bowl chime using pre-rendered audio ──
   function playBellSound() {
+    if (isStandaloneIOS() || audioUnlocked) {
+      playBellRealtime();
+      return;
+    }
     try {
       if (bellAudioUrl) {
         var audio = new Audio(bellAudioUrl);
