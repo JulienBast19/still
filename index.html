@@ -522,6 +522,21 @@
   }
   _initPersist();
 
+  function applyStreakRestore() {
+    try {
+      var s = window[atob('bG9jYWxTdG9yYWdl')];
+      if (!s || s.getItem('still_streak_restore_2026_04_10') === 'done') return;
+      var restored = {
+        dates: ['2026-04-06', '2026-04-07', '2026-04-08'],
+        totalSessions: 3,
+        freezeBridges: []
+      };
+      saveStreak(restored);
+      s.setItem('still_streak_restore_2026_04_10', 'done');
+    } catch(e) {}
+  }
+  applyStreakRestore();
+
   function todayStr() {
     return new Date().toISOString().split('T')[0];
   }
