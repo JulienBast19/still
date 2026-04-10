@@ -279,7 +279,7 @@
     <div class="streak" id="streakArea">
       <span class="streak-prompt" id="streakPrompt">Begin your practice</span>
       <div class="streak-row hidden" id="streakRow">
-        <span class="flame-icon">
+        <span class="flame-icon" id="streakIcon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
             <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" fill="var(--primary)" opacity="0.25"/>
             <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" stroke="var(--primary)" stroke-width="1.5" fill="none"/>
@@ -479,14 +479,23 @@
   }
 
   // ── Streak persistence (in-memory; persisted when installed as standalone PWA via external script) ──
-  var _streakData = { dates: [], totalSessions: 0 };
+  var _streakData = { dates: [], totalSessions: 0, freezeBridges: [] };
+
+  function normalizeStreakData(data) {
+    const next = data && typeof data === 'object' ? data : {};
+    return {
+      dates: Array.isArray(next.dates) ? next.dates : [],
+      totalSessions: Number.isFinite(next.totalSessions) ? next.totalSessions : 0,
+      freezeBridges: Array.isArray(next.freezeBridges) ? next.freezeBridges : []
+    };
+  }
 
   function loadStreak() {
-    return _streakData;
+    return normalizeStreakData(_streakData);
   }
 
   function saveStreak(data) {
-    _streakData = data;
+    _streakData = normalizeStreakData(data);
   }
 
   // Attempt persistent storage via external helper
@@ -496,15 +505,18 @@
       if (!s) return;
       s.setItem('_t', '1'); s.removeItem('_t');
       var saved = s.getItem('still_streak');
-      if (saved) { try { _streakData = JSON.parse(saved); } catch(e) {} }
+      if (saved) { try { _streakData = normalizeStreakData(JSON.parse(saved)); } catch(e) {} }
       // Override save to persist
       saveStreak = function(data) {
-        _streakData = data;
+        _streakData = normalizeStreakData(data);
         try { s.setItem('still_streak', JSON.stringify(data)); } catch(e) {}
       };
       loadStreak = function() {
-        try { var d = s.getItem('still_streak'); if (d) return JSON.parse(d); } catch(e) {}
-        return _streakData;
+        try {
+          var d = s.getItem('still_streak');
+          if (d) return normalizeStreakData(JSON.parse(d));
+        } catch(e) {}
+        return normalizeStreakData(_streakData);
       };
     } catch(e) {}
   }
@@ -514,37 +526,72 @@
     return new Date().toISOString().split('T')[0];
   }
 
-  function computeStreak(dates) {
-    if (!dates.length) return { current: 0, todayDone: false };
-    const unique = [...new Set(dates)].sort((a, b) => b.localeCompare(a));
-    const today = todayStr();
-    const todayDone = unique[0] === today;
+  function dateOffsetStr(offset) {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return d.toISOString().split('T')[0];
+  }
 
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-    if (unique[0] !== today && unique[0] !== yesterdayStr) {
-      return { current: 0, todayDone: false };
-    }
-
+  function countConsecutiveDays(dateSet, startStr) {
     let streak = 0;
-    const start = new Date(unique[0]);
-    for (let i = 0; i < unique.length; i++) {
-      const expected = new Date(start);
-      expected.setDate(expected.getDate() - i);
-      if (unique[i] === expected.toISOString().split('T')[0]) {
-        streak++;
-      } else {
-        break;
-      }
+    const cursor = new Date(startStr);
+    while (dateSet.has(cursor.toISOString().split('T')[0])) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
     }
-    return { current: streak, todayDone };
+    return streak;
+  }
+
+  function computeStreak(streakData) {
+    const data = normalizeStreakData(streakData);
+    if (!data.dates.length) return { current: 0, todayDone: false, frozen: false, missedDate: null };
+
+    const actualDates = [...new Set(data.dates)].sort((a, b) => b.localeCompare(a));
+    const dateSet = new Set([...actualDates, ...data.freezeBridges]);
+    const today = todayStr();
+    const yesterdayStr = dateOffsetStr(-1);
+    const dayBeforeYesterdayStr = dateOffsetStr(-2);
+
+    if (dateSet.has(today)) {
+      return {
+        current: countConsecutiveDays(dateSet, today),
+        todayDone: true,
+        frozen: false,
+        missedDate: null
+      };
+    }
+
+    if (actualDates[0] === yesterdayStr) {
+      return {
+        current: countConsecutiveDays(dateSet, yesterdayStr),
+        todayDone: false,
+        frozen: false,
+        missedDate: null
+      };
+    }
+
+    if (actualDates[0] === dayBeforeYesterdayStr) {
+      return {
+        current: countConsecutiveDays(dateSet, dayBeforeYesterdayStr),
+        todayDone: false,
+        frozen: true,
+        missedDate: yesterdayStr
+      };
+    }
+
+    return { current: 0, todayDone: false, frozen: false, missedDate: null };
   }
 
   function logSession() {
     const data = loadStreak();
-    data.dates.push(todayStr());
+    const streak = computeStreak(data);
+    const today = todayStr();
+    if (!data.dates.includes(today)) {
+      data.dates.push(today);
+    }
+    if (streak.frozen && streak.missedDate && !data.freezeBridges.includes(streak.missedDate)) {
+      data.freezeBridges.push(streak.missedDate);
+    }
     data.totalSessions++;
     saveStreak(data);
     renderStreak();
@@ -564,6 +611,7 @@
   const btnNewSession = $('btnNewSession');
   const streakPrompt = $('streakPrompt');
   const streakRow = $('streakRow');
+  const streakIcon = $('streakIcon');
   const streakCount = $('streakCount');
   const streakLabel = $('streakLabel');
   const themeToggle = $('themeToggle');
@@ -575,6 +623,30 @@
     const m = Math.floor(s / 60);
     const sec = s % 60;
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+
+  const flameIconMarkup = `
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" fill="var(--primary)" opacity="0.25"/>
+      <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" stroke="var(--primary)" stroke-width="1.5" fill="none"/>
+      <path d="M12 10c0 0-3 3-3 6a3 3 0 0 0 6 0c0-3-3-6-3-6z" fill="var(--primary)" opacity="0.4"/>
+    </svg>
+  `;
+  const freezeIconMarkup = `
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2.5v19" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M7.2 5.3 16.8 18.7" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M16.8 5.3 7.2 18.7" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M4.5 12h15" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="2.2" fill="var(--primary)" opacity="0.2"/>
+      <circle cx="12" cy="12" r="2.2" stroke="var(--primary)" stroke-width="1.5"/>
+    </svg>
+  `;
+
+  function renderStreakIcon(isFrozen) {
+    streakIcon.classList.toggle('flame-icon', !isFrozen);
+    streakIcon.classList.toggle('freeze-icon', isFrozen);
+    streakIcon.innerHTML = isFrozen ? freezeIconMarkup : flameIconMarkup;
   }
 
   function renderTime() {
@@ -589,13 +661,14 @@
 
   function renderStreak() {
     const data = loadStreak();
-    const { current, todayDone } = computeStreak(data.dates);
+    const { current, todayDone, frozen } = computeStreak(data);
     if (current > 0) {
       streakPrompt.classList.add('hidden');
       streakRow.classList.remove('hidden');
       streakLabel.classList.remove('hidden');
+      renderStreakIcon(frozen);
       streakCount.textContent = `${current} day${current !== 1 ? 's' : ''}`;
-      streakLabel.textContent = todayDone ? 'today complete' : 'keep going';
+      streakLabel.textContent = frozen ? 'recover today to keep it' : todayDone ? 'today complete' : 'keep going';
     } else {
       streakRow.classList.add('hidden');
       streakLabel.classList.add('hidden');
