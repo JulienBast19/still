@@ -1,4 +1,4 @@
-const CACHE_NAME = 'still-v8';
+const CACHE_NAME = 'still-v9';
 
 // Files to cache for offline use (relative paths for subdirectory hosting)
 const PRECACHE_URLS = [
@@ -6,6 +6,7 @@ const PRECACHE_URLS = [
   './index.html',
   './manifest.json',
   './apple-touch-icon.png',
+  './touch-icon-v3.png',
   './icon-192.png',
   './icon-512.png',
   './favicon.svg'
