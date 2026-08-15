@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>Still — Meditation Timer</title>
-<meta name="description" content="A minimal meditation timer with a Tibetan bowl chime and daily streak tracking.">
+<meta name="description" content="A minimal meditation timer with a Tibetan bowl chime that tracks your total practice time and mindful days.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Still">
@@ -93,41 +93,46 @@
     max-width: 28rem;
   }
 
-  /* Streak */
-  .streak {
+  /* Practice stats */
+  .stats {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
     animation: fadeIn 0.6s ease-out;
   }
-  .streak-row {
+  .stats-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 1.5rem;
   }
-  .streak-count {
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 5.5rem;
+  }
+  .stat-value {
     font-size: 1.125rem;
     font-weight: 600;
     letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
   }
-  .streak-label {
+  .stat-label {
     font-size: 0.7rem;
     color: var(--fg-muted);
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
-  .streak-prompt {
+  .stat-divider {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+  }
+  .stats-prompt {
     font-size: 0.875rem;
     color: var(--fg-muted);
   }
-
-  /* Flame icon pulse */
-  @keyframes gentlePulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.06); }
-  }
-  .flame-icon { animation: gentlePulse 2s ease-in-out infinite; }
 
   /* Timer */
   .timer-wrapper {
@@ -275,20 +280,20 @@
   <!-- Main content -->
   <div class="main">
 
-    <!-- Streak display -->
-    <div class="streak" id="streakArea">
-      <span class="streak-prompt" id="streakPrompt">Begin your practice</span>
-      <div class="streak-row hidden" id="streakRow">
-        <span class="flame-icon" id="streakIcon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" fill="var(--primary)" opacity="0.25"/>
-            <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" stroke="var(--primary)" stroke-width="1.5" fill="none"/>
-            <path d="M12 10c0 0-3 3-3 6a3 3 0 0 0 6 0c0-3-3-6-3-6z" fill="var(--primary)" opacity="0.4"/>
-          </svg>
-        </span>
-        <span class="streak-count" id="streakCount">0 days</span>
+    <!-- Practice stats -->
+    <div class="stats" id="statsArea">
+      <span class="stats-prompt" id="statsPrompt">Begin your practice</span>
+      <div class="stats-row hidden" id="statsRow">
+        <div class="stat">
+          <span class="stat-value" id="totalTimeValue">0m</span>
+          <span class="stat-label">practiced</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <span class="stat-value" id="totalDaysValue">0</span>
+          <span class="stat-label" id="totalDaysLabel">mindful days</span>
+        </div>
       </div>
-      <span class="streak-label hidden" id="streakLabel">keep going</span>
     </div>
 
     <!-- Timer circle -->
@@ -478,24 +483,24 @@
     } catch(e) {}
   }
 
-  // ── Streak persistence (in-memory; persisted when installed as standalone PWA via external script) ──
-  var _streakData = { dates: [], totalSessions: 0, freezeBridges: [] };
+  // ── Practice stats persistence (in-memory; persisted when installed as standalone PWA via external script) ──
+  var _statsData = { dates: [], totalSessions: 0, totalSeconds: 0 };
 
-  function normalizeStreakData(data) {
+  function normalizeStatsData(data) {
     const next = data && typeof data === 'object' ? data : {};
     return {
-      dates: Array.isArray(next.dates) ? next.dates : [],
+      dates: Array.isArray(next.dates) ? [...new Set(next.dates)] : [],
       totalSessions: Number.isFinite(next.totalSessions) ? next.totalSessions : 0,
-      freezeBridges: Array.isArray(next.freezeBridges) ? next.freezeBridges : []
+      totalSeconds: Number.isFinite(next.totalSeconds) ? next.totalSeconds : 0
     };
   }
 
-  function loadStreak() {
-    return normalizeStreakData(_streakData);
+  function loadStats() {
+    return normalizeStatsData(_statsData);
   }
 
-  function saveStreak(data) {
-    _streakData = normalizeStreakData(data);
+  function saveStats(data) {
+    _statsData = normalizeStatsData(data);
   }
 
   // Attempt persistent storage via external helper
@@ -505,111 +510,51 @@
       if (!s) return;
       s.setItem('_t', '1'); s.removeItem('_t');
       var saved = s.getItem('still_streak');
-      if (saved) { try { _streakData = normalizeStreakData(JSON.parse(saved)); } catch(e) {} }
+      if (saved) { try { _statsData = normalizeStatsData(JSON.parse(saved)); } catch(e) {} }
       // Override save to persist
-      saveStreak = function(data) {
-        _streakData = normalizeStreakData(data);
-        try { s.setItem('still_streak', JSON.stringify(data)); } catch(e) {}
+      saveStats = function(data) {
+        _statsData = normalizeStatsData(data);
+        try { s.setItem('still_streak', JSON.stringify(_statsData)); } catch(e) {}
       };
-      loadStreak = function() {
+      loadStats = function() {
         try {
           var d = s.getItem('still_streak');
-          if (d) return normalizeStreakData(JSON.parse(d));
+          if (d) return normalizeStatsData(JSON.parse(d));
         } catch(e) {}
-        return normalizeStreakData(_streakData);
+        return normalizeStatsData(_statsData);
       };
     } catch(e) {}
   }
   _initPersist();
 
-  function applyStreakRestore() {
+  function applyStatsRestore() {
     try {
       var s = window[atob('bG9jYWxTdG9yYWdl')];
       if (!s || s.getItem('still_streak_restore_2026_04_10') === 'done') return;
-      var restored = {
+      saveStats({
         dates: ['2026-04-06', '2026-04-07', '2026-04-08'],
         totalSessions: 3,
-        freezeBridges: []
-      };
-      saveStreak(restored);
+        totalSeconds: 0
+      });
       s.setItem('still_streak_restore_2026_04_10', 'done');
     } catch(e) {}
   }
-  applyStreakRestore();
+  applyStatsRestore();
 
   function todayStr() {
     return new Date().toISOString().split('T')[0];
   }
 
-  function dateOffsetStr(offset) {
-    const d = new Date();
-    d.setDate(d.getDate() + offset);
-    return d.toISOString().split('T')[0];
-  }
-
-  function countConsecutiveDays(dateSet, startStr) {
-    let streak = 0;
-    const cursor = new Date(startStr);
-    while (dateSet.has(cursor.toISOString().split('T')[0])) {
-      streak++;
-      cursor.setDate(cursor.getDate() - 1);
-    }
-    return streak;
-  }
-
-  function computeStreak(streakData) {
-    const data = normalizeStreakData(streakData);
-    if (!data.dates.length) return { current: 0, todayDone: false, frozen: false, missedDate: null };
-
-    const actualDates = [...new Set(data.dates)].sort((a, b) => b.localeCompare(a));
-    const dateSet = new Set([...actualDates, ...data.freezeBridges]);
-    const today = todayStr();
-    const yesterdayStr = dateOffsetStr(-1);
-    const dayBeforeYesterdayStr = dateOffsetStr(-2);
-
-    if (dateSet.has(today)) {
-      return {
-        current: countConsecutiveDays(dateSet, today),
-        todayDone: true,
-        frozen: false,
-        missedDate: null
-      };
-    }
-
-    if (actualDates[0] === yesterdayStr) {
-      return {
-        current: countConsecutiveDays(dateSet, yesterdayStr),
-        todayDone: false,
-        frozen: false,
-        missedDate: null
-      };
-    }
-
-    if (actualDates[0] === dayBeforeYesterdayStr) {
-      return {
-        current: countConsecutiveDays(dateSet, dayBeforeYesterdayStr),
-        todayDone: false,
-        frozen: true,
-        missedDate: yesterdayStr
-      };
-    }
-
-    return { current: 0, todayDone: false, frozen: false, missedDate: null };
-  }
-
-  function logSession() {
-    const data = loadStreak();
-    const streak = computeStreak(data);
+  function logSession(seconds) {
+    const data = loadStats();
     const today = todayStr();
     if (!data.dates.includes(today)) {
       data.dates.push(today);
     }
-    if (streak.frozen && streak.missedDate && !data.freezeBridges.includes(streak.missedDate)) {
-      data.freezeBridges.push(streak.missedDate);
-    }
     data.totalSessions++;
-    saveStreak(data);
-    renderStreak();
+    data.totalSeconds += seconds;
+    saveStats(data);
+    renderStats();
   }
 
   // ── Elements ──
@@ -624,11 +569,11 @@
   const btnReset = $('btnReset');
   const btnResume = $('btnResume');
   const btnNewSession = $('btnNewSession');
-  const streakPrompt = $('streakPrompt');
-  const streakRow = $('streakRow');
-  const streakIcon = $('streakIcon');
-  const streakCount = $('streakCount');
-  const streakLabel = $('streakLabel');
+  const statsPrompt = $('statsPrompt');
+  const statsRow = $('statsRow');
+  const totalTimeValue = $('totalTimeValue');
+  const totalDaysValue = $('totalDaysValue');
+  const totalDaysLabel = $('totalDaysLabel');
   const themeToggle = $('themeToggle');
   const moonIcon = $('moonIcon');
   const sunIcon = $('sunIcon');
@@ -640,28 +585,12 @@
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   }
 
-  const flameIconMarkup = `
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" fill="var(--primary)" opacity="0.25"/>
-      <path d="M12 2C12 2 6 8 6 14a6 6 0 0 0 12 0c0-6-6-12-6-12z" stroke="var(--primary)" stroke-width="1.5" fill="none"/>
-      <path d="M12 10c0 0-3 3-3 6a3 3 0 0 0 6 0c0-3-3-6-3-6z" fill="var(--primary)" opacity="0.4"/>
-    </svg>
-  `;
-  const freezeIconMarkup = `
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <path d="M12 2.5v19" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
-      <path d="M7.2 5.3 16.8 18.7" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
-      <path d="M16.8 5.3 7.2 18.7" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
-      <path d="M4.5 12h15" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round"/>
-      <circle cx="12" cy="12" r="2.2" fill="var(--primary)" opacity="0.2"/>
-      <circle cx="12" cy="12" r="2.2" stroke="var(--primary)" stroke-width="1.5"/>
-    </svg>
-  `;
-
-  function renderStreakIcon(isFrozen) {
-    streakIcon.classList.toggle('flame-icon', !isFrozen);
-    streakIcon.classList.toggle('freeze-icon', isFrozen);
-    streakIcon.innerHTML = isFrozen ? freezeIconMarkup : flameIconMarkup;
+  function formatTotalTime(totalSeconds) {
+    const minutes = Math.floor(totalSeconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
   }
 
   function renderTime() {
@@ -674,21 +603,18 @@
     progressRing.style.opacity = timerState === 'idle' ? '0' : '0.7';
   }
 
-  function renderStreak() {
-    const data = loadStreak();
-    const { current, todayDone, frozen } = computeStreak(data);
-    if (current > 0) {
-      streakPrompt.classList.add('hidden');
-      streakRow.classList.remove('hidden');
-      streakLabel.classList.remove('hidden');
-      renderStreakIcon(frozen);
-      streakCount.textContent = `${current} day${current !== 1 ? 's' : ''}`;
-      streakLabel.textContent = frozen ? 'recover today to keep it' : todayDone ? 'today complete' : 'keep going';
+  function renderStats() {
+    const data = loadStats();
+    const days = data.dates.length;
+    if (data.totalSessions > 0 || days > 0) {
+      statsPrompt.classList.add('hidden');
+      statsRow.classList.remove('hidden');
+      totalTimeValue.textContent = formatTotalTime(data.totalSeconds);
+      totalDaysValue.textContent = String(days);
+      totalDaysLabel.textContent = `mindful day${days !== 1 ? 's' : ''}`;
     } else {
-      streakRow.classList.add('hidden');
-      streakLabel.classList.add('hidden');
-      streakPrompt.classList.remove('hidden');
-      streakPrompt.textContent = data.totalSessions === 0 ? 'Begin your practice' : 'Start a new streak';
+      statsRow.classList.add('hidden');
+      statsPrompt.classList.remove('hidden');
     }
   }
 
@@ -841,7 +767,7 @@
     timerState = 'finished';
     renderControls();
     playBellSound();
-    logSession();
+    logSession(selectedDuration);
   }
 
   // ── Play Tibetan bowl chime using pre-rendered audio ──
@@ -931,7 +857,7 @@
   // ── Init ──
   applyTheme();
   renderTime();
-  renderStreak();
+  renderStats();
   renderControls();
 
   // Register service worker

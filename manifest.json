@@ -1,7 +1,7 @@
 {
   "name": "Still — Meditation Timer",
   "short_name": "Still",
-  "description": "A minimal meditation timer with a Tibetan bowl chime and daily streak tracking.",
+  "description": "A minimal meditation timer with a Tibetan bowl chime that tracks your total practice time and mindful days.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

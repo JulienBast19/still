@@ -1,4 +1,4 @@
-const CACHE_NAME = 'still-v7';
+const CACHE_NAME = 'still-v8';
 
 // Files to cache for offline use (relative paths for subdirectory hosting)
 const PRECACHE_URLS = [
