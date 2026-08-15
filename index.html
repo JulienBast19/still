@@ -541,6 +541,24 @@
   }
   applyStatsRestore();
 
+  // One-time backfill: sessions logged before durations were tracked have no
+  // recorded length, so credit each of those days with the 10 min default.
+  const ASSUMED_LEGACY_SECONDS_PER_DAY = 600;
+
+  function applyLegacyTimeBackfill() {
+    try {
+      var s = window[atob('bG9jYWxTdG9yYWdl')];
+      if (!s || s.getItem('still_time_backfill') === 'done') return;
+      var data = loadStats();
+      if (data.totalSeconds === 0 && data.dates.length) {
+        data.totalSeconds = data.dates.length * ASSUMED_LEGACY_SECONDS_PER_DAY;
+        saveStats(data);
+      }
+      s.setItem('still_time_backfill', 'done');
+    } catch(e) {}
+  }
+  applyLegacyTimeBackfill();
+
   function todayStr() {
     return new Date().toISOString().split('T')[0];
   }
